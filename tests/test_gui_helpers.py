@@ -68,10 +68,10 @@ class TestGuiHelpers(unittest.TestCase):
         original_exists = gui.os.path.exists
         try:
             gui.sys.frozen = True
-            gui.sys.executable = r"C:\dist\gui.exe"
-            gui.os.path.exists = lambda p: p == r"C:\dist\attack.exe"
+            gui.sys.executable = "/dist/gui.exe"
+            gui.os.path.exists = lambda p: p == "/dist/attack.exe"
             cmd = gui._build_attack_cmd(gui._GUI_RUN_CONFIG_PATH)
-            self.assertEqual(cmd[0], r"C:\dist\attack.exe")
+            self.assertEqual(cmd[0], "/dist/attack.exe")
         finally:
             if original_frozen is None and hasattr(gui.sys, "frozen"):
                 delattr(gui.sys, "frozen")
@@ -86,7 +86,7 @@ class TestGuiHelpers(unittest.TestCase):
         original_exists = gui.os.path.exists
         try:
             gui.sys.frozen = True
-            gui.sys.executable = r"C:\dist\gui.exe"
+            gui.sys.executable = "/dist/gui.exe"
             gui.os.path.exists = lambda p: False
             with self.assertRaises(ValueError):
                 gui._build_attack_cmd(gui._GUI_RUN_CONFIG_PATH)
