@@ -168,7 +168,7 @@ def refresh_data(data_path: str):
     return gr.update(value=rows), f"✅ Loaded {len(data)} behaviours from `{data_path}`"
 
 
-_NUMERIC_RE = re.compile(r"^-?[0-9]+\.?[0-9]*$")
+_NUMERIC_RE = re.compile(r"^-?[0-9]+(\.[0-9]+)?$")
 
 
 def _validate_numeric(value: str, name: str) -> str:
@@ -252,7 +252,10 @@ def stop_attack():
         _process.wait(timeout=10)
     except subprocess.TimeoutExpired:
         _process.kill()
-        _process.wait(timeout=5)
+        try:
+            _process.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            pass
     _process = None
     with _log_lock:
         _log_lines.append("\n--- Attack stopped by user ---\n")
