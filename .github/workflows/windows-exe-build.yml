@@ -1,0 +1,50 @@
+name: Build Windows EXE
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+      - master
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  build-windows-exe:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Build attack.exe
+        run: pyinstaller --noconfirm attack.spec
+
+      - name: Build gui.exe
+        run: pyinstaller --noconfirm gui.spec
+
+      - name: Smoke test executables
+        shell: pwsh
+        run: |
+          if (!(Test-Path "dist/attack.exe")) { throw "dist/attack.exe not found" }
+          if (!(Test-Path "dist/gui.exe")) { throw "dist/gui.exe not found" }
+          dist/attack.exe --help
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: tao-attack-windows-exe
+          path: |
+            dist/attack.exe
+            dist/gui.exe

@@ -33,6 +33,45 @@ python attack.py
 
 ---
 
+## Windows `.exe` Packaging (PyInstaller)
+
+You can build standalone Windows executables for both CLI and GUI entrypoints.
+
+### Local build (Windows)
+
+```bash
+pip install -r requirements.txt
+pyinstaller --noconfirm attack.spec
+pyinstaller --noconfirm gui.spec
+```
+
+Artifacts are generated in `dist/`:
+
+- `dist/attack.exe` (CLI)
+- `dist/gui.exe` (GUI launcher)
+
+### Run
+
+- CLI: `dist/attack.exe --help`
+- GUI: start `dist/gui.exe` and open `http://127.0.0.1:7860`
+
+> `gui.exe` expects `attack.exe` to be in the same `dist/` folder so it can launch attacks from the GUI.
+
+### CI build
+
+A Windows GitHub Actions workflow is included at:
+
+- `.github/workflows/windows-exe-build.yml`
+
+It builds both executables, runs a smoke test, and uploads artifacts.
+
+### Limitations
+
+- Large model weights are **not** bundled into the executable.
+- Keep model files external and pass local paths (or HuggingFace model IDs) at runtime.
+
+---
+
 ## Project Structure
 
 ```

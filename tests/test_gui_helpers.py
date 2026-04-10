@@ -55,6 +55,49 @@ class TestGuiHelpers(unittest.TestCase):
             resume_idx = gui._infer_resume_index(rel)
             self.assertEqual(resume_idx, 6)
 
+    def test_build_attack_cmd_source(self):
+        cmd = gui._build_attack_cmd(gui._GUI_RUN_CONFIG_PATH)
+        self.assertEqual(cmd[0], gui.sys.executable)
+        self.assertTrue(cmd[1].endswith("attack.py"))
+        self.assertEqual(cmd[2], "--config_path")
+        self.assertEqual(cmd[3], gui._GUI_RUN_CONFIG_PATH)
+
+    def test_build_attack_cmd_frozen_prefers_attack_exe(self):
+        original_frozen = getattr(gui.sys, "frozen", None)
+        original_executable = gui.sys.executable
+        original_exists = gui.os.path.exists
+        try:
+            gui.sys.frozen = True
+            gui.sys.executable = "/dist/gui.exe"
+            gui.os.path.exists = lambda p: p == "/dist/attack.exe"
+            cmd = gui._build_attack_cmd(gui._GUI_RUN_CONFIG_PATH)
+            self.assertEqual(cmd[0], "/dist/attack.exe")
+        finally:
+            if original_frozen is None and hasattr(gui.sys, "frozen"):
+                delattr(gui.sys, "frozen")
+            else:
+                gui.sys.frozen = original_frozen
+            gui.sys.executable = original_executable
+            gui.os.path.exists = original_exists
+
+    def test_build_attack_cmd_frozen_requires_attack_exe(self):
+        original_frozen = getattr(gui.sys, "frozen", None)
+        original_executable = gui.sys.executable
+        original_exists = gui.os.path.exists
+        try:
+            gui.sys.frozen = True
+            gui.sys.executable = "/dist/gui.exe"
+            gui.os.path.exists = lambda p: False
+            with self.assertRaises(ValueError):
+                gui._build_attack_cmd(gui._GUI_RUN_CONFIG_PATH)
+        finally:
+            if original_frozen is None and hasattr(gui.sys, "frozen"):
+                delattr(gui.sys, "frozen")
+            else:
+                gui.sys.frozen = original_frozen
+            gui.sys.executable = original_executable
+            gui.os.path.exists = original_exists
+
 
 if __name__ == "__main__":
     unittest.main()
