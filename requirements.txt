@@ -4,3 +4,4 @@ fschat==0.2.20
 openai==1.105.0
 rouge_score==0.1.2
 gradio>=4.0.0
+pyinstaller>=6.0.0; platform_system == "Windows"

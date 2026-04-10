@@ -13,6 +13,7 @@ import os
 import re
 import signal
 import subprocess
+import sys
 import threading
 import time
 from datetime import datetime
@@ -128,6 +129,21 @@ def _read_stream(stream):
         with _log_lock:
             _log_lines.append(line)
     stream.close()
+
+
+def _build_attack_cmd(config_path: str) -> list[str]:
+    """Build the attack command for source runs and packaged Windows runs."""
+    if getattr(sys, "frozen", False):
+        exe_dir = os.path.dirname(sys.executable)
+        attack_exe = os.path.join(exe_dir, "attack.exe")
+        if os.path.exists(attack_exe):
+            return [attack_exe, "--config_path", config_path]
+        raise ValueError(
+            f"Packaged GUI expects attack.exe next to gui executable: `{attack_exe}`"
+        )
+
+    attack_script = os.path.join(_ROOT_DIR, "attack.py")
+    return [sys.executable, attack_script, "--config_path", config_path]
 
 
 def _is_harmful_context(data_path: str, data: list[dict]) -> bool:
@@ -635,7 +651,10 @@ def dry_run_config(
     except ValueError as exc:
         return f"⚠️ {exc}"
 
-    cmd = ["python", "attack.py", "--config_path", _GUI_RUN_CONFIG_PATH]
+    try:
+        cmd = _build_attack_cmd(_GUI_RUN_CONFIG_PATH)
+    except ValueError as exc:
+        return f"⚠️ {exc}"
     resume_msg = f"enabled from bidx={attack_config['start_bidx']}" if resume_run else "disabled"
 
     return (
@@ -709,7 +728,10 @@ def start_attack(
     with open(_GUI_RUN_CONFIG_PATH, "w", encoding="utf-8") as f:
         json.dump(attack_config, f)
 
-    cmd = ["python", "attack.py", "--config_path", _GUI_RUN_CONFIG_PATH]
+    try:
+        cmd = _build_attack_cmd(_GUI_RUN_CONFIG_PATH)
+    except ValueError as exc:
+        return f"⚠️ {exc}"
 
     with _log_lock:
         _log_lines.clear()
