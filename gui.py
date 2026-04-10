@@ -8,11 +8,18 @@ Launch with:
 import glob
 import json
 import os
+import re
 import signal
 import subprocess
 import threading
 
 import gradio as gr
+
+# ---------------------------------------------------------------------------
+# Constants
+# ---------------------------------------------------------------------------
+
+_ROOT_DIR = os.path.dirname(os.path.abspath(__file__))
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -21,6 +28,17 @@ import gradio as gr
 _process: subprocess.Popen | None = None
 _log_lines: list[str] = []
 _log_lock = threading.Lock()
+
+
+def _safe_resolve(path: str) -> str:
+    """Resolve *path* relative to the project root and return its real path.
+
+    Raises ``ValueError`` if the resolved path escapes the project tree.
+    """
+    resolved = os.path.realpath(os.path.join(_ROOT_DIR, path))
+    if not resolved.startswith(_ROOT_DIR):
+        raise ValueError(f"Path escapes project directory: {path}")
+    return resolved
 
 
 def _read_stream(stream):
@@ -37,7 +55,13 @@ def _read_stream(stream):
 
 def load_attack_data(filepath: str) -> list[dict]:
     """Load attack behaviours from a JSON file."""
-    if not filepath or not os.path.isfile(filepath):
+    if not filepath:
+        return []
+    try:
+        filepath = _safe_resolve(filepath)
+    except ValueError:
+        return []
+    if not os.path.isfile(filepath):
         return []
     try:
         with open(filepath, "r") as f:
@@ -64,14 +88,26 @@ def format_attack_table(data: list[dict]) -> list[list[str]]:
 
 def find_result_files(folder: str) -> list[str]:
     """Glob for *.jsonl files under *folder*."""
-    if not folder or not os.path.isdir(folder):
+    if not folder:
+        return []
+    try:
+        folder = _safe_resolve(folder)
+    except ValueError:
+        return []
+    if not os.path.isdir(folder):
         return []
     return sorted(glob.glob(os.path.join(folder, "*.jsonl")))
 
 
 def load_results(filepath: str) -> str:
     """Read a JSONL result file and return a formatted Markdown summary."""
-    if not filepath or not os.path.isfile(filepath):
+    if not filepath:
+        return "_No file selected._"
+    try:
+        filepath = _safe_resolve(filepath)
+    except ValueError:
+        return "_Invalid file path._"
+    if not os.path.isfile(filepath):
         return "_No file selected._"
 
     entries: list[dict] = []
@@ -132,6 +168,17 @@ def refresh_data(data_path: str):
     return gr.update(value=rows), f"✅ Loaded {len(data)} behaviours from `{data_path}`"
 
 
+_NUMERIC_RE = re.compile(r"^-?[0-9]+\.?[0-9]*$")
+
+
+def _validate_numeric(value: str, name: str) -> str:
+    """Return *value* as a string after verifying it looks numeric."""
+    s = str(value)
+    if not _NUMERIC_RE.match(s):
+        raise ValueError(f"Invalid value for {name}: {s}")
+    return s
+
+
 def start_attack(
     model_path: str,
     save_folder: str,
@@ -153,18 +200,28 @@ def start_attack(
     if not save_folder:
         return "⚠️  Please provide a save folder."
 
-    cmd = [
-        "python", "attack.py",
-        "--model_path", model_path,
-        "--save_folder", save_folder,
-        "--cl_threshold", str(cl_threshold),
-        "--num_steps", str(int(num_steps)),
-        "--batch_size", str(int(batch_size)),
-        "--topk", str(int(topk)),
-        "--temp", str(temp),
-        "--alpha", str(alpha),
-        "--beta", str(beta),
-    ]
+    # Validate save_folder stays within project directory
+    try:
+        resolved_save = _safe_resolve(save_folder)
+    except ValueError:
+        return "⚠️  Save folder must be inside the project directory."
+
+    # Validate numeric parameters
+    try:
+        cmd = [
+            "python", "attack.py",
+            "--model_path", str(model_path),
+            "--save_folder", resolved_save,
+            "--cl_threshold", _validate_numeric(cl_threshold, "cl_threshold"),
+            "--num_steps", _validate_numeric(int(num_steps), "num_steps"),
+            "--batch_size", _validate_numeric(int(batch_size), "batch_size"),
+            "--topk", _validate_numeric(int(topk), "topk"),
+            "--temp", _validate_numeric(temp, "temp"),
+            "--alpha", _validate_numeric(alpha, "alpha"),
+            "--beta", _validate_numeric(beta, "beta"),
+        ]
+    except ValueError as exc:
+        return f"⚠️  {exc}"
 
     with _log_lock:
         _log_lines.clear()
@@ -176,7 +233,7 @@ def start_attack(
         stderr=subprocess.STDOUT,
         text=True,
         bufsize=1,
-        cwd=os.path.dirname(os.path.abspath(__file__)),
+        cwd=_ROOT_DIR,
     )
 
     t = threading.Thread(target=_read_stream, args=(_process.stdout,), daemon=True)
@@ -191,7 +248,11 @@ def stop_attack():
     if _process is None or _process.poll() is not None:
         return "ℹ️  No attack is currently running."
     _process.send_signal(signal.SIGTERM)
-    _process.wait(timeout=10)
+    try:
+        _process.wait(timeout=10)
+    except subprocess.TimeoutExpired:
+        _process.kill()
+        _process.wait(timeout=5)
     _process = None
     with _log_lock:
         _log_lines.append("\n--- Attack stopped by user ---\n")
@@ -353,4 +414,4 @@ def build_ui() -> gr.Blocks:
 
 if __name__ == "__main__":
     app = build_ui()
-    app.launch(server_name="0.0.0.0", server_port=7860, theme=gr.themes.Soft())
+    app.launch(server_name="127.0.0.1", server_port=7860, theme=gr.themes.Soft())
