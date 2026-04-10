@@ -88,6 +88,7 @@ The GUI now launches `attack.py` with:
 - `--alpha`
 - `--beta`
 - `--start_bidx` (when resume mode is enabled)
+- `--config_path` (GUI-internal launch config file)
 
 ---
 

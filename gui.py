@@ -7,6 +7,7 @@ Launch with:
 
 import csv
 import glob
+import html
 import json
 import os
 import re
@@ -23,8 +24,11 @@ import gradio as gr
 # ---------------------------------------------------------------------------
 
 _ROOT_DIR = os.path.dirname(os.path.abspath(__file__))
-_HARMFUL_HINTS = ("harm", "jailbreak", "attack", "advbench", "unsafe")
+_HARMFUL_DATASET_KEYWORDS = ("harm", "jailbreak", "attack", "advbench", "unsafe")
 _NUMERIC_RE = re.compile(r"^-?[0-9]+(\.[0-9]+)?$")
+_MAX_RUN_LABEL_LEN = 16
+_BYTES_PER_GIB = 1024 ** 3
+_GUI_RUN_CONFIG_PATH = os.path.join(_ROOT_DIR, ".gui_attack_config.json")
 
 _PRESETS = {
     "fast": {
@@ -98,6 +102,26 @@ def _looks_like_local_path(path: str) -> bool:
     )
 
 
+def _validate_model_path(model_path: str) -> str:
+    value = (model_path or "").strip()
+    if not value:
+        raise ValueError("Please provide a model path.")
+    if value.startswith("-"):
+        raise ValueError("Model path cannot start with '-'.")
+    if any(ord(ch) < 32 for ch in value):
+        raise ValueError("Model path contains control characters.")
+
+    if _looks_like_local_path(value):
+        resolved_local = _safe_resolve(os.path.expanduser(value))
+        if not os.path.exists(resolved_local):
+            raise ValueError(f"Local model path not found: `{model_path}`")
+        return resolved_local
+
+    if ".." in value or not re.fullmatch(r"[A-Za-z0-9._/-]+", value):
+        raise ValueError("Invalid HuggingFace model id format.")
+    return value
+
+
 def _read_stream(stream):
     """Read lines from *stream* and append them to the shared log buffer."""
     for line in iter(stream.readline, ""):
@@ -111,7 +135,7 @@ def _is_harmful_context(data_path: str, data: list[dict]) -> bool:
         f"{d.get('behavior', '')} {d.get('behaviour', '')} {d.get('target', '')}" for d in data[:20]
     )
     text = context.lower()
-    return any(hint in text for hint in _HARMFUL_HINTS)
+    return any(hint in text for hint in _HARMFUL_DATASET_KEYWORDS)
 
 
 def _extract_result_entries(filepath: str) -> list[dict]:
@@ -204,7 +228,7 @@ def _render_svg_plot(summaries: list[dict], outpath: str):
         h = int((s["success_rate"] / 100.0) * (height - 2 * margin))
         y = height - margin - h
         bars.append(f'<rect x="{x}" y="{y}" width="{bar_width}" height="{h}" fill="#4f46e5" />')
-        label = os.path.basename(s["file"])[:16]
+        label = html.escape(os.path.basename(s["file"])[:_MAX_RUN_LABEL_LEN])
         labels.append(f'<text x="{x + bar_width / 2}" y="{height - 8}" font-size="10" text-anchor="middle">{label}</text>')
         labels.append(f'<text x="{x + bar_width / 2}" y="{max(14, y - 4)}" font-size="10" text-anchor="middle">{s["success_rate"]:.1f}%</text>')
 
@@ -521,6 +545,62 @@ def refresh_data(data_path: str, category: str, start_idx: int, end_idx: int, ke
     return gr.update(value=rows), status, gr.update(choices=categories, value=category)
 
 
+def _build_attack_config(
+    model_path: str,
+    save_folder: str,
+    data_path: str,
+    cl_threshold: float,
+    num_steps: int,
+    batch_size: int,
+    topk: int,
+    temp: float,
+    alpha: float,
+    beta: float,
+    resume_run: bool,
+    safe_mode: bool,
+    confirm_harmful: bool,
+) -> tuple[dict, int]:
+    if not model_path:
+        raise ValueError("Please provide a model path.")
+    if not save_folder:
+        raise ValueError("Please provide a save folder.")
+    if not data_path:
+        raise ValueError("Please provide a dataset path.")
+
+    resolved_save = _safe_resolve(save_folder)
+    resolved_data = _safe_resolve(data_path)
+    if not os.path.exists(resolved_data):
+        raise ValueError(f"Dataset file does not exist: `{data_path}`")
+
+    data = load_attack_data(data_path)
+    if not data:
+        raise ValueError("Dataset is empty or invalid JSON list.")
+
+    if safe_mode and _is_harmful_context(data_path, data) and not confirm_harmful:
+        raise ValueError("Safe mode is enabled; please confirm launching against potentially harmful behavior data.")
+
+    validated_model = _validate_model_path(model_path)
+
+    start_bidx = 0
+    if resume_run:
+        start_bidx = _infer_resume_index(save_folder)
+
+    attack_config = {
+        "model_path": validated_model,
+        "save_folder": resolved_save,
+        "data_path": resolved_data,
+        "cl_threshold": float(_validate_numeric(cl_threshold, "cl_threshold")),
+        "num_steps": int(_validate_numeric(int(num_steps), "num_steps")),
+        "batch_size": int(_validate_numeric(int(batch_size), "batch_size")),
+        "topk": int(_validate_numeric(int(topk), "topk")),
+        "temp": float(_validate_numeric(temp, "temp")),
+        "alpha": float(_validate_numeric(alpha, "alpha")),
+        "beta": float(_validate_numeric(beta, "beta")),
+        "start_bidx": int(start_bidx),
+    }
+    return attack_config, len(data)
+
+
 def dry_run_config(
     model_path: str,
     save_folder: str,
@@ -536,61 +616,33 @@ def dry_run_config(
     safe_mode: bool,
     confirm_harmful: bool,
 ):
-    if not model_path:
-        return "⚠️ Please provide a model path."
-    if not save_folder:
-        return "⚠️ Please provide a save folder."
-    if not data_path:
-        return "⚠️ Please provide a dataset path."
-
     try:
-        resolved_save = _safe_resolve(save_folder)
-        resolved_data = _safe_resolve(data_path)
+        attack_config, data_count = _build_attack_config(
+            model_path,
+            save_folder,
+            data_path,
+            cl_threshold,
+            num_steps,
+            batch_size,
+            topk,
+            temp,
+            alpha,
+            beta,
+            resume_run,
+            safe_mode,
+            confirm_harmful,
+        )
     except ValueError as exc:
         return f"⚠️ {exc}"
 
-    if not os.path.exists(resolved_data):
-        return f"⚠️ Dataset file does not exist: `{data_path}`"
-
-    data = load_attack_data(data_path)
-    if not data:
-        return "⚠️ Dataset is empty or invalid JSON list."
-
-    if safe_mode and _is_harmful_context(data_path, data) and not confirm_harmful:
-        return "⚠️ Safe mode is enabled; please confirm launching against potentially harmful behavior data."
-
-    local_model_missing = _looks_like_local_path(model_path) and not os.path.exists(os.path.expanduser(model_path))
-    if local_model_missing:
-        return f"⚠️ Local model path not found: `{model_path}`"
-
-    try:
-        cmd = [
-            "python", "attack.py",
-            "--model_path", str(model_path),
-            "--save_folder", resolved_save,
-            "--data_path", resolved_data,
-            "--cl_threshold", _validate_numeric(cl_threshold, "cl_threshold"),
-            "--num_steps", _validate_numeric(int(num_steps), "num_steps"),
-            "--batch_size", _validate_numeric(int(batch_size), "batch_size"),
-            "--topk", _validate_numeric(int(topk), "topk"),
-            "--temp", _validate_numeric(temp, "temp"),
-            "--alpha", _validate_numeric(alpha, "alpha"),
-            "--beta", _validate_numeric(beta, "beta"),
-        ]
-    except ValueError as exc:
-        return f"⚠️ {exc}"
-
-    resume_msg = "disabled"
-    if resume_run:
-        resume_from = _infer_resume_index(save_folder)
-        cmd.extend(["--start_bidx", str(resume_from)])
-        resume_msg = f"enabled from bidx={resume_from}"
+    cmd = ["python", "attack.py", "--config_path", _GUI_RUN_CONFIG_PATH]
+    resume_msg = f"enabled from bidx={attack_config['start_bidx']}" if resume_run else "disabled"
 
     return (
         "✅ Dry run passed.\n\n"
-        f"- Dataset size: {len(data)}\n"
+        f"- Dataset size: {data_count}\n"
         f"- Resume: {resume_msg}\n"
-        f"- Save folder: `{resolved_save}`\n\n"
+        f"- Save folder: `{attack_config['save_folder']}`\n\n"
         "**Command preview**\n"
         f"`{' '.join(cmd)}`"
     )
@@ -635,28 +687,29 @@ def start_attack(
     if validation_msg.startswith("⚠️"):
         return validation_msg
 
-    resolved_save = _safe_resolve(save_folder)
-    resolved_data = _safe_resolve(data_path)
-    os.makedirs(resolved_save, exist_ok=True)
+    try:
+        attack_config, _ = _build_attack_config(
+            model_path,
+            save_folder,
+            data_path,
+            cl_threshold,
+            num_steps,
+            batch_size,
+            topk,
+            temp,
+            alpha,
+            beta,
+            resume_run,
+            safe_mode,
+            confirm_harmful,
+        )
+    except ValueError as exc:
+        return f"⚠️ {exc}"
 
-    cmd = [
-        "python", "attack.py",
-        "--model_path", str(model_path),
-        "--save_folder", resolved_save,
-        "--data_path", resolved_data,
-        "--cl_threshold", _validate_numeric(cl_threshold, "cl_threshold"),
-        "--num_steps", _validate_numeric(int(num_steps), "num_steps"),
-        "--batch_size", _validate_numeric(int(batch_size), "batch_size"),
-        "--topk", _validate_numeric(int(topk), "topk"),
-        "--temp", _validate_numeric(temp, "temp"),
-        "--alpha", _validate_numeric(alpha, "alpha"),
-        "--beta", _validate_numeric(beta, "beta"),
-    ]
+    with open(_GUI_RUN_CONFIG_PATH, "w", encoding="utf-8") as f:
+        json.dump(attack_config, f)
 
-    start_bidx = 0
-    if resume_run:
-        start_bidx = _infer_resume_index(save_folder)
-        cmd.extend(["--start_bidx", str(start_bidx)])
+    cmd = ["python", "attack.py", "--config_path", _GUI_RUN_CONFIG_PATH]
 
     with _log_lock:
         _log_lines.clear()
@@ -675,8 +728,8 @@ def start_attack(
 
     _run_started_at = time.time()
     _run_config = {
-        "num_steps": int(num_steps),
-        "start_bidx": start_bidx,
+        "num_steps": int(attack_config["num_steps"]),
+        "start_bidx": int(attack_config["start_bidx"]),
         "data_path": data_path,
         "save_folder": save_folder,
     }
@@ -750,8 +803,8 @@ def monitor_resources():
         import torch  # lazy import
 
         if torch.cuda.is_available():
-            used = torch.cuda.memory_allocated() / (1024 ** 3)
-            total = torch.cuda.get_device_properties(0).total_memory / (1024 ** 3)
+            used = torch.cuda.memory_allocated() / _BYTES_PER_GIB
+            total = torch.cuda.get_device_properties(0).total_memory / _BYTES_PER_GIB
             gpu_used = f"{used:.2f} GiB"
             gpu_total = f"{total:.2f} GiB"
     except Exception:

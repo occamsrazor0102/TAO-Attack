@@ -23,6 +23,13 @@ import random
 from collections import deque
 from rouge_score import rouge_scorer
 
+def _non_negative_int(value):
+    """Argparse type validator that accepts only non-negative integers."""
+    ivalue = int(value)
+    if ivalue < 0:
+        raise argparse.ArgumentTypeError("Value must be non-negative")
+    return ivalue
+
 parser = argparse.ArgumentParser()
 parser.add_argument("--model_path", type=str)
 parser.add_argument("--save_folder", type=str)
@@ -34,10 +41,41 @@ parser.add_argument("--topk", type=int, default=256)
 parser.add_argument("--temp", type=float, default=0.5) # \gamma
 parser.add_argument("--alpha", type=float, default=0.2) # \alpha
 parser.add_argument("--beta", type=float, default=0.2) # \beta
-parser.add_argument("--start_bidx", type=int, default=0)
+parser.add_argument("--start_bidx", type=_non_negative_int, default=0)
 parser.add_argument("--success_output", type=str, default="seminormclupdate2.jsonl")
 parser.add_argument("--failed_output", type=str, default="seminormclupdate.jsonl")
+parser.add_argument("--config_path", type=str, default=None)
 args = parser.parse_args()
+
+if args.config_path:
+    with open(args.config_path, "r", encoding="utf-8") as f:
+        cfg = json.load(f)
+    for key in (
+        "model_path",
+        "save_folder",
+        "data_path",
+        "cl_threshold",
+        "num_steps",
+        "batch_size",
+        "topk",
+        "temp",
+        "alpha",
+        "beta",
+        "start_bidx",
+        "success_output",
+        "failed_output",
+    ):
+        if key in cfg:
+            setattr(args, key, cfg[key])
+
+args.cl_threshold = float(args.cl_threshold)
+args.num_steps = int(args.num_steps)
+args.batch_size = int(args.batch_size)
+args.topk = int(args.topk)
+args.temp = float(args.temp)
+args.alpha = float(args.alpha)
+args.beta = float(args.beta)
+args.start_bidx = _non_negative_int(args.start_bidx)
 
 print(args)
 
@@ -398,7 +436,7 @@ def generate_init_neg_prompt(model, tokenizer, suffix_manager, test_prefixes,adv
 times = []
 import time
 adv_suffix = adv_string_init
-for bidx in range(max(args.start_bidx, 0), len(attack_data)):
+for bidx in range(args.start_bidx, len(attack_data)):
     
     np.random.seed(20)
 
