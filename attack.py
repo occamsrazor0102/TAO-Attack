@@ -26,6 +26,7 @@ from rouge_score import rouge_scorer
 parser = argparse.ArgumentParser()
 parser.add_argument("--model_path", type=str)
 parser.add_argument("--save_folder", type=str)
+parser.add_argument("--data_path", type=str, default="./data/advbench/igcg_ori.json")
 parser.add_argument("--cl_threshold", type=float, default=1.0) # \tau
 parser.add_argument("--num_steps", type=int, default=1000)
 parser.add_argument("--batch_size", type=int, default=256)
@@ -33,6 +34,9 @@ parser.add_argument("--topk", type=int, default=256)
 parser.add_argument("--temp", type=float, default=0.5) # \gamma
 parser.add_argument("--alpha", type=float, default=0.2) # \alpha
 parser.add_argument("--beta", type=float, default=0.2) # \beta
+parser.add_argument("--start_bidx", type=int, default=0)
+parser.add_argument("--success_output", type=str, default="seminormclupdate2.jsonl")
+parser.add_argument("--failed_output", type=str, default="seminormclupdate.jsonl")
 args = parser.parse_args()
 
 print(args)
@@ -77,7 +81,7 @@ model_path = args.model_path
 save_folder = args.save_folder
 os.makedirs(save_folder, exist_ok=True)
 
-num_steps = 1000
+num_steps = args.num_steps
 adv_string_init = "! ! ! ! ! ! ! ! ! ! ! ! ! ! ! ! ! ! ! !"
 
 device = 'cuda'
@@ -343,7 +347,7 @@ def target_loss(logits, ids, target_slice,neg_loss,alpha,tl=0):
 
 attack_data = []
 
-with open("./data/advbench/igcg_ori.json","r") as f:
+with open(args.data_path, "r", encoding="utf-8") as f:
     attack_data = json.load(f)
 
 attack_data.reverse()
@@ -394,7 +398,7 @@ def generate_init_neg_prompt(model, tokenizer, suffix_manager, test_prefixes,adv
 times = []
 import time
 adv_suffix = adv_string_init
-for bidx in range(len(attack_data)):
+for bidx in range(max(args.start_bidx, 0), len(attack_data)):
     
     np.random.seed(20)
 
@@ -622,7 +626,7 @@ for bidx in range(len(attack_data)):
                     print(completion)
                     optim_step['Success'] = True
                     optim_step['Completion'] = completion
-                    add_line_to_jsonl("seminormclupdate2.jsonl", optim_step)
+                    add_line_to_jsonl(args.success_output, optim_step)
                     del losses, adv_suffix_tokens,logits,current_loss; gc.collect()
                     torch.cuda.empty_cache()
                     break
@@ -652,7 +656,7 @@ for bidx in range(len(attack_data)):
     if 'Success' not in optim_step:
         optim_step['Success'] = False
         optim_step['Completion'] = None
-        add_line_to_jsonl("seminormclupdate.jsonl", optim_step)
+        add_line_to_jsonl(args.failed_output, optim_step)
         optim_step['end_time'] = time.time()
         ms.append((suffix_manager,neg_suffix_manager_list[0]))
     print(f"Attack failed for behavior {bidx}, saved sample for analysis")

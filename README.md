@@ -67,10 +67,27 @@ Then open [http://localhost:7860](http://localhost:7860) in your browser.
 
 | Tab | Description |
 |---|---|
-| **⚙️ Configuration & Launch** | Set model path, save folder, and all hyperparameters (τ, γ, α, β, etc.). Start or stop an attack run. |
-| **📋 Attack Data** | Browse the behaviours / targets loaded from the JSON data file. |
-| **📜 Live Logs** | Stream stdout from the running `attack.py` process (auto-refreshes every 3 s). |
+| **⚙️ Configuration & Launch** | Set model path, dataset path, save folder, and hyperparameters. Includes fast/balanced/thorough presets, dry-run validation, resume mode, and safe-mode confirmation gate. |
+| **📋 Attack Data** | Browse and filter behaviors/targets with category, index-range, and keyword filters. |
+| **📜 Live Logs** | Stream stdout from `attack.py` and monitor runtime, ETA, and GPU memory usage. |
 | **📊 Results** | Select and view JSONL result files with per-behaviour success/failure summaries. |
+| **📈 Run History & Export** | Compare runs (success rate, avg queries, avg loss) and export CSV/JSON/SVG artifacts. |
+
+### CLI options used by the GUI
+
+The GUI now launches `attack.py` with:
+
+- `--model_path`
+- `--save_folder`
+- `--data_path`
+- `--cl_threshold`
+- `--num_steps`
+- `--batch_size`
+- `--topk`
+- `--temp`
+- `--alpha`
+- `--beta`
+- `--start_bidx` (when resume mode is enabled)
 
 ---
 
