@@ -51,6 +51,29 @@ LLM-ATTACKS/
 
 ---
 
+## GUI
+
+TAO-Attack includes a Gradio-based web GUI for configuring, running, and inspecting attacks.
+
+### Launch the GUI
+
+```bash
+python gui.py
+```
+
+Then open [http://localhost:7860](http://localhost:7860) in your browser.
+
+### Features
+
+| Tab | Description |
+|---|---|
+| **⚙️ Configuration & Launch** | Set model path, save folder, and all hyperparameters (τ, γ, α, β, etc.). Start or stop an attack run. |
+| **📋 Attack Data** | Browse the behaviours / targets loaded from the JSON data file. |
+| **📜 Live Logs** | Stream stdout from the running `attack.py` process (auto-refreshes every 3 s). |
+| **📊 Results** | Select and view JSONL result files with per-behaviour success/failure summaries. |
+
+---
+
 ## License
 
 This project is licensed under the terms of the MIT License.
