@@ -2,7 +2,8 @@
 
 from pathlib import Path
 
-project_root = Path(__file__).resolve().parent
+# PyInstaller spec files may not define __file__ in all execution contexts.
+project_root = Path.cwd().resolve()
 
 a = Analysis(
     ["gui.py"],
